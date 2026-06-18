@@ -5,21 +5,21 @@
   Returns a UUID string of the requested version (1, 4, 6, or 7).
 
   Build/install:
-    CREATE FUNCTION uuidv RETURNS STRING SONAME 'uuidv_udf.so';
-    SELECT uuidv(4);
-    DROP FUNCTION uuidv;
+    CREATE FUNCTION uuidv_udf RETURNS STRING SONAME 'uuidv_udf.so';
+    SELECT uuidv_udf(4);
+    DROP FUNCTION uuidv_udf;
 */
 
 #include <cstring>
 #include <cstdlib>
 
-#include <mysql.h>
+#include <mysql/udf_registration_types.h>
 
 #include "../uuid_gen.h"
 
 extern "C" {
 
-bool uuidv_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
+bool uuidv_udf_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
   if (args->arg_count != 1) {
     strcpy(message, "uuidv() requires exactly one argument: the UUID version");
     return true;
@@ -27,15 +27,15 @@ bool uuidv_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
   /* Coerce the argument to INT so callers may pass it as a numeric literal. */
   args->arg_type[0] = INT_RESULT;
 
-  initid->maybe_null = false;
+  initid->maybe_null = true;
   initid->const_item = false;  /* value differs per row */
   initid->max_length = 36;
   return false;
 }
 
-void uuidv_deinit(UDF_INIT *) {}
+void uuidv_udf_deinit(UDF_INIT *) {}
 
-char *uuidv(UDF_INIT *, UDF_ARGS *args, char *result, unsigned long *length,
+char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result, unsigned long *length,
             char *is_null, char *error) {
   if (args->args[0] == nullptr) {
     *is_null = 1;

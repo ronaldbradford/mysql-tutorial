@@ -8,7 +8,7 @@
 
   Install/use:
     INSTALL COMPONENT 'file://component_uuidv';
-    SELECT uuidv(4);
+    SELECT uuidv_component(4);
     UNINSTALL COMPONENT 'file://component_uuidv';
 */
 
@@ -17,17 +17,14 @@
 #include <mysql/components/component_implementation.h>
 #include <mysql/components/service_implementation.h>
 #include <mysql/components/services/udf_registration.h>
-#include <mysql/components/services/mysql_runtime_error_service.h>
-#include <mysqld_error.h>
 
 #include "../uuid_gen.h"
 
 REQUIRES_SERVICE_PLACEHOLDER(udf_registration);
-REQUIRES_SERVICE_PLACEHOLDER(mysql_runtime_error);
 
 namespace {
 
-const char *kFuncName = "uuidv";
+const char *kFuncName = "uuidv_component";
 
 bool uuidv_udf_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
   if (args->arg_count != 1) {
@@ -35,7 +32,7 @@ bool uuidv_udf_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
     return true;
   }
   args->arg_type[0] = INT_RESULT;
-  initid->maybe_null = false;
+  initid->maybe_null = true;
   initid->const_item = false;
   initid->max_length = 36;
   return false;
@@ -93,7 +90,6 @@ END_COMPONENT_PROVIDES();
 
 BEGIN_COMPONENT_REQUIRES(component_uuidv)
 REQUIRES_SERVICE(udf_registration),
-REQUIRES_SERVICE(mysql_runtime_error),
 END_COMPONENT_REQUIRES();
 
 BEGIN_COMPONENT_METADATA(component_uuidv)
