@@ -28,15 +28,15 @@ bool uuidv_udf_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
   args->arg_type[0] = INT_RESULT;
 
   initid->maybe_null = true;
-  initid->const_item = false;  /* value differs per row */
+  initid->const_item = false;
   initid->max_length = 36;
   return false;
 }
 
 void uuidv_udf_deinit(UDF_INIT *) {}
 
-char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result, unsigned long *length,
-            char *is_null, char *error) {
+char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result, 
+		unsigned long *length, char *is_null, char *error) {
   if (args->args[0] == nullptr) {
     *is_null = 1;
     return nullptr;
@@ -57,8 +57,7 @@ char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result, unsigned long *length,
     return nullptr;
   }
 
-  /* result buffer is 255 bytes; 36 fits. */
-  memcpy(result, buf, 36);
+  memcpy(result, buf, 36);  /* result buffer is 255 bytes */
   *length = 36;
   return result;
 }

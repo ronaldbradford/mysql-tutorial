@@ -32,6 +32,7 @@ bool uuidv_udf_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
     return true;
   }
   args->arg_type[0] = INT_RESULT;
+
   initid->maybe_null = true;
   initid->const_item = false;
   initid->max_length = 36;
@@ -40,8 +41,8 @@ bool uuidv_udf_init(UDF_INIT *initid, UDF_ARGS *args, char *message) {
 
 void uuidv_udf_deinit(UDF_INIT *) {}
 
-char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result, unsigned long *length,
-                unsigned char *is_null, unsigned char *error) {
+char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result, 
+		unsigned long *length, unsigned char *is_null, unsigned char *error) {
   if (args->args[0] == nullptr) {
     *is_null = 1;
     return nullptr;
@@ -49,9 +50,14 @@ char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result, unsigned long *length,
 
   long long version = *reinterpret_cast<long long *>(args->args[0]);
 
+  if (!uuidv_gen::supported(static_cast<int>(version))) {
+    *error = 1;
+    *is_null = 1;
+    return nullptr;
+  }
+
   char buf[37];
-  if (!uuidv_gen::supported(static_cast<int>(version)) ||
-      !uuidv_gen::generate(static_cast<int>(version), buf)) {
+  if (!uuidv_gen::generate(static_cast<int>(version), buf)) {
     *error = 1;
     *is_null = 1;
     return nullptr;
