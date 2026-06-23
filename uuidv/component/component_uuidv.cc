@@ -23,14 +23,19 @@
     UNINSTALL COMPONENT 'file://component_uuidv';
 */
 
+#include <chrono>
 #include <climits>
 #include <cstring>
+#include <functional>
+#include <mutex>
+#include <thread>
 
 #include <mysql/components/component_implementation.h>
 #include <mysql/components/service_implementation.h>
 #include <mysql/components/services/udf_registration.h>
 #include <mysql/components/services/component_sys_var_service.h>
 #include <mysql/components/services/component_status_var_service.h>
+#include <mysql/components/services/pfs_plugin_table_service.h>
 
 #include "../uuid_gen.h"
 
@@ -38,6 +43,11 @@ REQUIRES_SERVICE_PLACEHOLDER(udf_registration);
 REQUIRES_SERVICE_PLACEHOLDER(component_sys_variable_register);
 REQUIRES_SERVICE_PLACEHOLDER(component_sys_variable_unregister);
 REQUIRES_SERVICE_PLACEHOLDER(status_variable_registration);
+REQUIRES_SERVICE_PLACEHOLDER(pfs_plugin_table_v1);
+REQUIRES_SERVICE_PLACEHOLDER(pfs_plugin_column_tiny_v1);
+REQUIRES_SERVICE_PLACEHOLDER(pfs_plugin_column_bigint_v1);
+REQUIRES_SERVICE_PLACEHOLDER(pfs_plugin_column_string_v2);
+REQUIRES_SERVICE_PLACEHOLDER(pfs_plugin_column_timestamp_v2);
 
 namespace {
 
@@ -61,6 +71,154 @@ static SHOW_VAR uuidv_status_vars[] = {
      SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
     {nullptr, nullptr, SHOW_UNDEF, SHOW_SCOPE_GLOBAL}
 };
+
+/* ---- History ring buffer -------------------------------------------------- */
+
+static constexpr unsigned int kHistCap = 100;
+
+struct HistRow {
+  unsigned long long thread_id;
+  int                version;
+  char               uuid[37];
+  unsigned long long event_us;   /* microseconds since Unix epoch */
+};
+
+static HistRow      g_hist[kHistCap];
+static unsigned int g_hist_next  = 0;   /* next slot to write */
+static unsigned int g_hist_count = 0;   /* filled entries (0..kHistCap) */
+static std::mutex   g_hist_mu;
+
+static void hist_append(int version, const char *uuid36) {
+  unsigned long long tid = static_cast<unsigned long long>(
+      std::hash<std::thread::id>{}(std::this_thread::get_id()));
+  unsigned long long us = static_cast<unsigned long long>(
+      std::chrono::duration_cast<std::chrono::microseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count());
+  std::lock_guard<std::mutex> lk(g_hist_mu);
+  unsigned int slot        = g_hist_next % kHistCap;
+  g_hist[slot].thread_id  = tid;
+  g_hist[slot].version    = version;
+  g_hist[slot].event_us   = us;
+  memcpy(g_hist[slot].uuid, uuid36, 37);
+  ++g_hist_next;
+  if (g_hist_count < kHistCap) ++g_hist_count;
+}
+
+/* ---- P_S table handle ----------------------------------------------------- */
+
+/*
+  The position (m_ref_length bytes) is the first field so that
+  *pos = (PSI_pos *)handle correctly points to it.
+  The server saves/restores m_ref_length bytes there for rnd_pos.
+*/
+struct HistHandle {
+  unsigned int idx;         /* cursor: 0-based into snapshot; UINT_MAX = before-start */
+  unsigned int start_slot;  /* ring buffer slot for row 0 in this scan */
+  unsigned int count;       /* snapshot of g_hist_count at rnd_init time */
+};
+
+static PSI_table_handle *hist_open(PSI_pos **pos) {
+  auto *h = new HistHandle{UINT_MAX, 0, 0};
+  *pos = reinterpret_cast<PSI_pos *>(h);
+  return reinterpret_cast<PSI_table_handle *>(h);
+}
+
+static void hist_close(PSI_table_handle *handle) {
+  delete reinterpret_cast<HistHandle *>(handle);
+}
+
+static int hist_rnd_init(PSI_table_handle *handle, bool scan) {
+  auto *h = reinterpret_cast<HistHandle *>(handle);
+  if (scan) {
+    std::lock_guard<std::mutex> lk(g_hist_mu);
+    h->count      = g_hist_count;
+    h->start_slot = (g_hist_next >= kHistCap) ? g_hist_next % kHistCap : 0;
+  }
+  h->idx = UINT_MAX;
+  return 0;
+}
+
+static int hist_rnd_next(PSI_table_handle *handle) {
+  auto *h        = reinterpret_cast<HistHandle *>(handle);
+  unsigned int n = (h->idx == UINT_MAX) ? 0u : h->idx + 1;
+  if (n >= h->count) return PFS_HA_ERR_END_OF_FILE;
+  h->idx = n;
+  return 0;
+}
+
+static int hist_rnd_pos(PSI_table_handle *handle) {
+  auto *h = reinterpret_cast<HistHandle *>(handle);
+  return (h->idx < h->count) ? 0 : PFS_HA_ERR_RECORD_DELETED;
+}
+
+static void hist_reset_pos(PSI_table_handle *handle) {
+  reinterpret_cast<HistHandle *>(handle)->idx = UINT_MAX;
+}
+
+static int hist_read_col(PSI_table_handle *handle, PSI_field *field,
+                          unsigned int col) {
+  auto *h          = reinterpret_cast<HistHandle *>(handle);
+  unsigned int slot = (h->start_slot + h->idx) % kHistCap;
+  const HistRow &r  = g_hist[slot];
+  switch (col) {
+    case 0: {
+      PSI_ubigint v{r.thread_id, false};
+      mysql_service_pfs_plugin_column_bigint_v1->set_unsigned(field, v);
+      break;
+    }
+    case 1: {
+      PSI_tinyint v{r.version, false};
+      mysql_service_pfs_plugin_column_tiny_v1->set(field, v);
+      break;
+    }
+    case 2:
+      mysql_service_pfs_plugin_column_string_v2->set_varchar_utf8mb4(
+          field, r.uuid);
+      break;
+    case 3:
+      mysql_service_pfs_plugin_column_timestamp_v2->set2(field, r.event_us);
+      break;
+    default:
+      return 1;
+  }
+  return 0;
+}
+
+static int hist_delete_all() {
+  std::lock_guard<std::mutex> lk(g_hist_mu);
+  g_hist_next  = 0;
+  g_hist_count = 0;
+  return 0;
+}
+
+static unsigned long long hist_row_count() { return g_hist_count; }
+
+/* ---- P_S table share ------------------------------------------------------ */
+
+static PFS_engine_table_share_proxy  hist_share;
+static PFS_engine_table_share_proxy *hist_share_list[] = {&hist_share};
+
+static void hist_share_setup() {
+  hist_share.m_table_name        = "uuidv_history";
+  hist_share.m_table_name_length = 13;
+  hist_share.m_table_definition  =
+      "`THREAD_ID` BIGINT UNSIGNED NOT NULL,"
+      "`VERSION` TINYINT NOT NULL,"
+      "`UUID` VARCHAR(36) NOT NULL,"
+      "`EVENT_TIME` TIMESTAMP(6) NOT NULL";
+  hist_share.m_ref_length    = sizeof(unsigned int);
+  hist_share.m_acl           = TRUNCATABLE;
+  hist_share.delete_all_rows = hist_delete_all;
+  hist_share.get_row_count   = hist_row_count;
+  auto &p = hist_share.m_proxy_engine_table;
+  p.open_table        = hist_open;
+  p.close_table       = hist_close;
+  p.rnd_init          = hist_rnd_init;
+  p.rnd_next          = hist_rnd_next;
+  p.rnd_pos           = hist_rnd_pos;
+  p.reset_position    = hist_reset_pos;
+  p.read_column_value = hist_read_col;
+}
 
 /* ---- Global storage (SET GLOBAL writes here) ----------------------------- */
 
@@ -162,6 +320,7 @@ char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result,
     case 6: ++uuidv_count_v6; break;
     case 7: ++uuidv_count_v7; break;
   }
+  hist_append(static_cast<int>(version), buf);
 
   if (effective_formatted()) {
     memcpy(result, buf, 36);
@@ -223,6 +382,15 @@ bool register_sysvars() {
   return false;
 }
 
+bool register_history() {
+  hist_share_setup();
+  return mysql_service_pfs_plugin_table_v1->add_tables(hist_share_list, 1) != 0;
+}
+
+void unregister_history() {
+  mysql_service_pfs_plugin_table_v1->delete_tables(hist_share_list, 1);
+}
+
 void unregister_sysvars() {
   mysql_service_component_sys_variable_unregister->unregister_variable(
       "component_uuidv", "formatted");
@@ -236,6 +404,11 @@ mysql_service_status_t component_init() {
     unregister_sysvars();
     return 1;
   }
+  if (register_history()) {
+    unregister_uuidv();
+    unregister_sysvars();
+    return 1;
+  }
   mysql_service_status_variable_registration->register_variable(
       uuidv_status_vars);
   return 0;
@@ -244,6 +417,7 @@ mysql_service_status_t component_init() {
 mysql_service_status_t component_deinit() {
   mysql_service_status_variable_registration->unregister_variable(
       uuidv_status_vars);
+  unregister_history();
   unregister_uuidv();
   unregister_sysvars();
   return 0;
@@ -260,6 +434,11 @@ REQUIRES_SERVICE(udf_registration),
 REQUIRES_SERVICE(component_sys_variable_register),
 REQUIRES_SERVICE(component_sys_variable_unregister),
 REQUIRES_SERVICE(status_variable_registration),
+REQUIRES_SERVICE(pfs_plugin_table_v1),
+REQUIRES_SERVICE(pfs_plugin_column_tiny_v1),
+REQUIRES_SERVICE(pfs_plugin_column_bigint_v1),
+REQUIRES_SERVICE(pfs_plugin_column_string_v2),
+REQUIRES_SERVICE(pfs_plugin_column_timestamp_v2),
 END_COMPONENT_REQUIRES();
 
 BEGIN_COMPONENT_METADATA(component_uuidv)

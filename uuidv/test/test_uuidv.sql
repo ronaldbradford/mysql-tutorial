@@ -195,6 +195,34 @@ SELECT 'uuidv_component formatted=OFF no dashes' AS test,
        IF(LOCATE('-', uuidv_component(4)) = 0, 'PASS', 'FAIL') AS result;
 SET SESSION `component_uuidv.formatted` = ON;
 
+-- Performance Schema history table
+SELECT 'uuidv_history table exists' AS test,
+       IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
+FROM   information_schema.TABLES
+WHERE  TABLE_SCHEMA = 'performance_schema'
+  AND  TABLE_NAME   = 'uuidv_history';
+
+SET @before = (SELECT COUNT(*) FROM performance_schema.uuidv_history);
+SELECT uuidv_component(4), uuidv_component(7);
+SET @after = (SELECT COUNT(*) FROM performance_schema.uuidv_history);
+SELECT 'uuidv_history rows appended' AS test,
+       IF(@after - @before = 2, 'PASS', 'FAIL') AS result;
+
+SELECT 'uuidv_history has UUID column' AS test,
+       IF(COUNT(*) > 0, 'PASS', 'FAIL') AS result
+FROM   performance_schema.uuidv_history
+WHERE  LENGTH(UUID) = 36;
+
+SELECT 'uuidv_history has EVENT_TIME' AS test,
+       IF(COUNT(*) > 0, 'PASS', 'FAIL') AS result
+FROM   performance_schema.uuidv_history
+WHERE  EVENT_TIME > '2020-01-01';
+
+TRUNCATE TABLE performance_schema.uuidv_history;
+SELECT 'uuidv_history truncate clears rows' AS test,
+       IF(COUNT(*) = 0, 'PASS', 'FAIL') AS result
+FROM   performance_schema.uuidv_history;
+
 -- Status variables: invocation counters
 SELECT 'uuidv_component v4_count exists' AS test,
        IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
