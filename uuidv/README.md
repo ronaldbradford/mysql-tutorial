@@ -100,7 +100,48 @@ The component registers `uuidv_component()` automatically on install:
 INSTALL COMPONENT 'file://component_uuidv';
 SELECT uuidv_component(4);
 SELECT uuidv_component(7);
+SELECT uuidv_component();          -- uses uuidv_component.default_version
 UNINSTALL COMPONENT 'file://component_uuidv';
+```
+
+**System variables**
+
+| Variable | Scope | Default | Description |
+|----------|-------|---------|-------------|
+| `uuidv_component.default_version` | GLOBAL | `4` | UUID version used when called with no argument |
+| `uuidv_component.formatted` | SESSION | `ON` | `ON` returns `xxxxxxxx-xxxx-…` (36 chars); `OFF` returns compact 32-char hex |
+
+```sql
+SET GLOBAL `uuidv_component.default_version` = 7;
+SET SESSION `uuidv_component.formatted` = OFF;
+```
+
+Note: `default_version` is GLOBAL-only; `formatted` supports both SESSION and GLOBAL scope.
+
+**Status variables** — invocation counters per UUID version, visible in
+`performance_schema.global_status`:
+
+```sql
+SELECT VARIABLE_NAME, VARIABLE_VALUE
+FROM   performance_schema.global_status
+WHERE  VARIABLE_NAME LIKE 'uuidv_component%';
+-- uuidv_component_v1_count, uuidv_component_v4_count,
+-- uuidv_component_v6_count, uuidv_component_v7_count
+```
+
+**Performance Schema table** — `performance_schema.uuidv_history` is a
+100-row ring buffer recording every `uuidv_component()` call:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `THREAD_ID` | `BIGINT UNSIGNED` | OS thread ID of the caller |
+| `VERSION` | `TINYINT` | UUID version generated |
+| `UUID` | `VARCHAR(36)` | The UUID string |
+| `EVENT_TIME` | `TIMESTAMP(6)` | Wall-clock time of the call |
+
+```sql
+SELECT * FROM performance_schema.uuidv_history ORDER BY EVENT_TIME DESC LIMIT 5;
+TRUNCATE TABLE performance_schema.uuidv_history;   -- clears the ring buffer
 ```
 
 ### Daemon server plugin
@@ -113,8 +154,31 @@ INSTALL PLUGIN uuidv_plugin SONAME 'uuidv_plugin.so';
 CREATE FUNCTION uuidv_plugin RETURNS STRING SONAME 'uuidv_plugin.so';
 SELECT uuidv_plugin(4);
 SELECT uuidv_plugin(7);
+SELECT uuidv_plugin();             -- uses uuidv_plugin_default_version
 DROP FUNCTION uuidv_plugin;
 UNINSTALL PLUGIN uuidv_plugin;
+```
+
+**System variables**
+
+| Variable | Scope | Default | Description |
+|----------|-------|---------|-------------|
+| `uuidv_plugin_default_version` | SESSION | `4` | UUID version used when called with no argument |
+| `uuidv_plugin_formatted` | SESSION | `ON` | `ON` returns formatted UUID; `OFF` returns compact 32-char hex |
+
+```sql
+SET SESSION uuidv_plugin_default_version = 7;
+SET SESSION uuidv_plugin_formatted = OFF;
+```
+
+**Status variables** — invocation counters per UUID version:
+
+```sql
+SELECT VARIABLE_NAME, VARIABLE_VALUE
+FROM   performance_schema.global_status
+WHERE  VARIABLE_NAME LIKE 'uuidv_plugin%';
+-- uuidv_plugin_v1_count, uuidv_plugin_v4_count,
+-- uuidv_plugin_v6_count, uuidv_plugin_v7_count
 ```
 
 ### UDF plugin
