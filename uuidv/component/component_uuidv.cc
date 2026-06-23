@@ -5,18 +5,18 @@
 
   Signature:  uuidv_component([version INT]) RETURNS STRING
   Returns a UUID string of the requested version (1, 4, 6, or 7).
-  With no argument, uses the component_uuidv.default_version system variable.
+  With no argument, uses the uuidv_component.default_version system variable.
 
   System variables:
-    component_uuidv.default_version  INT  GLOBAL scope  default 4  (range 1-7)
-    component_uuidv.formatted        BOOL SESSION scope default ON
+    uuidv_component.default_version  INT  GLOBAL scope  default 4  (range 1-7)
+    uuidv_component.formatted        BOOL SESSION scope default ON
 
   Install/use:
     INSTALL COMPONENT 'file://component_uuidv';
     SELECT uuidv_component();
     SELECT uuidv_component(7);
-    SET GLOBAL component_uuidv.default_version = 7;   -- GLOBAL only
-    SET SESSION component_uuidv.formatted = OFF;       -- SESSION scope
+    SET GLOBAL uuidv_component.default_version = 7;   -- GLOBAL only
+    SET SESSION uuidv_component.formatted = OFF;       -- SESSION scope
     UNINSTALL COMPONENT 'file://component_uuidv';
 */
 
@@ -343,7 +343,7 @@ bool register_sysvars() {
   version_arg.max_val = 7;
   version_arg.blk_sz  = 0;
   if (mysql_service_component_sys_variable_register->register_variable(
-          "component_uuidv", "default_version",
+          "uuidv_component", "default_version",
           PLUGIN_VAR_INT,
           "Default UUID version to generate (1, 4, 6, or 7). "
           "Used when uuidv_component() is called with no argument.",
@@ -355,7 +355,7 @@ bool register_sysvars() {
   BOOL_CHECK_ARG(bool) formatted_arg;
   formatted_arg.def_val = true;
   if (mysql_service_component_sys_variable_register->register_variable(
-          "component_uuidv", "formatted",
+          "uuidv_component", "formatted",
           PLUGIN_VAR_BOOL | PLUGIN_VAR_THDLOCAL,
           "Return UUID with dashes (ON) or as a compact 32-character "
           "hex string (OFF).",
@@ -363,7 +363,7 @@ bool register_sysvars() {
           reinterpret_cast<void *>(&formatted_arg),
           reinterpret_cast<void *>(&uuidv_global_formatted))) {
     mysql_service_component_sys_variable_unregister->unregister_variable(
-        "component_uuidv", "default_version");
+        "uuidv_component", "default_version");
     return true;
   }
   return false;
@@ -380,9 +380,9 @@ void unregister_history() {
 
 void unregister_sysvars() {
   mysql_service_component_sys_variable_unregister->unregister_variable(
-      "component_uuidv", "formatted");
+      "uuidv_component", "formatted");
   mysql_service_component_sys_variable_unregister->unregister_variable(
-      "component_uuidv", "default_version");
+      "uuidv_component", "default_version");
 }
 
 mysql_service_status_t component_init() {

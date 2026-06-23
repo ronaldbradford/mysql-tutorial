@@ -168,32 +168,32 @@ SELECT 'uuidv_component uniqueness v4' AS test,
 SELECT 'uuidv_component sysvar default_version exists' AS test,
        IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
 FROM   performance_schema.global_variables
-WHERE  VARIABLE_NAME = 'component_uuidv.default_version';
+WHERE  VARIABLE_NAME = 'uuidv_component.default_version';
 
 SELECT 'uuidv_component sysvar default_version default' AS test,
-       IF(@@`component_uuidv.default_version` = 4, 'PASS', 'FAIL') AS result;
+       IF(@@`uuidv_component.default_version` = 4, 'PASS', 'FAIL') AS result;
 
-SET GLOBAL `component_uuidv.default_version` = 7;
+SET GLOBAL `uuidv_component.default_version` = 7;
 SET @d = uuidv_component();
 SELECT 'uuidv_component default_version=7 no-arg call' AS test,
        IF(SUBSTRING(@d, 15, 1) = '7', 'PASS', 'FAIL') AS result;
-SET GLOBAL `component_uuidv.default_version` = 4;
+SET GLOBAL `uuidv_component.default_version` = 4;
 
 -- System variables: formatted (dashes vs compact)
 SELECT 'uuidv_component sysvar formatted exists' AS test,
        IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
 FROM   performance_schema.global_variables
-WHERE  VARIABLE_NAME = 'component_uuidv.formatted';
+WHERE  VARIABLE_NAME = 'uuidv_component.formatted';
 
 SELECT 'uuidv_component formatted=ON length' AS test,
        IF(LENGTH(uuidv_component(4)) = 36, 'PASS', 'FAIL') AS result;
 
-SET SESSION `component_uuidv.formatted` = OFF;
+SET SESSION `uuidv_component.formatted` = OFF;
 SELECT 'uuidv_component formatted=OFF length' AS test,
        IF(LENGTH(uuidv_component(4)) = 32, 'PASS', 'FAIL') AS result;
 SELECT 'uuidv_component formatted=OFF no dashes' AS test,
        IF(LOCATE('-', uuidv_component(4)) = 0, 'PASS', 'FAIL') AS result;
-SET SESSION `component_uuidv.formatted` = ON;
+SET SESSION `uuidv_component.formatted` = ON;
 
 -- Performance Schema history table
 SELECT 'uuidv_history table exists' AS test,
