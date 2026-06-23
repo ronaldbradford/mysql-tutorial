@@ -7,24 +7,20 @@
   Returns a UUID string of the requested version (1, 4, 6, or 7).
   With no argument, uses the component_uuidv.default_version system variable.
 
-  System variables (GLOBAL and SESSION scope):
-    component_uuidv.default_version  INT  default 4  (range 1-7)
-    component_uuidv.formatted        BOOL default ON
-
-  Session values are tracked via thread_local mirrors updated by the variable
-  update callbacks. New connections inherit the current global value.
+  System variables:
+    component_uuidv.default_version  INT  GLOBAL scope  default 4  (range 1-7)
+    component_uuidv.formatted        BOOL SESSION scope default ON
 
   Install/use:
     INSTALL COMPONENT 'file://component_uuidv';
     SELECT uuidv_component();
     SELECT uuidv_component(7);
-    SET GLOBAL component_uuidv.default_version = 7;
-    SET SESSION component_uuidv.formatted = OFF;
+    SET GLOBAL component_uuidv.default_version = 7;   -- GLOBAL only
+    SET SESSION component_uuidv.formatted = OFF;       -- SESSION scope
     UNINSTALL COMPONENT 'file://component_uuidv';
 */
 
 #include <chrono>
-#include <climits>
 #include <cstring>
 #include <functional>
 #include <mutex>
@@ -220,29 +216,24 @@ static void hist_share_setup() {
   p.read_column_value = hist_read_col;
 }
 
-/* ---- Global storage (SET GLOBAL writes here) ----------------------------- */
-
-static int  uuidv_global_default_version = 4;
-static bool uuidv_global_formatted       = true;
+/* ---- Global storage ------------------------------------------------------ */
 
 /*
-  Thread-local mirrors: INT_MIN / -1 are sentinels meaning "no session SET has
-  been executed on this connection; fall back to the global value".
+  default_version is a GLOBAL-only variable (PLUGIN_VAR_INT without
+  PLUGIN_VAR_THDLOCAL). The server uses this pointer as the live backing
+  store, so SET GLOBAL writes here directly.
 */
-static thread_local int uuidv_tl_default_version = INT_MIN;
-static thread_local int uuidv_tl_formatted       = -1;
+static int  uuidv_global_default_version = 4;
 
-/* ---- Update callbacks — maintain thread-local mirrors -------------------- */
+/*
+  formatted is SESSION-scoped (PLUGIN_VAR_BOOL | PLUGIN_VAR_THDLOCAL).
+  uuidv_global_formatted holds the current global default; uuidv_tl_formatted
+  mirrors the per-session value: -1 = "use global", 0/1 = session override.
+*/
+static bool uuidv_global_formatted = true;
+static thread_local int uuidv_tl_formatted = -1;
 
-static void update_default_version(MYSQL_THD thd, SYS_VAR *,
-                                   void *val_ptr, const void *save) {
-  int v = *static_cast<const int *>(save);
-  *static_cast<int *>(val_ptr) = v;
-  if (thd)
-    uuidv_tl_default_version = v;     /* SET SESSION */
-  else
-    uuidv_global_default_version = v; /* SET GLOBAL  */
-}
+/* ---- Update callback for formatted --------------------------------------- */
 
 static void update_formatted(MYSQL_THD thd, SYS_VAR *,
                               void *val_ptr, const void *save) {
@@ -254,13 +245,9 @@ static void update_formatted(MYSQL_THD thd, SYS_VAR *,
     uuidv_global_formatted = v;               /* SET GLOBAL  */
 }
 
-/* ---- Helper: read effective (session-or-global) variable values ---------- */
+/* ---- Helper: read effective formatted value ------------------------------ */
 
-static inline int  effective_version()  {
-  return (uuidv_tl_default_version != INT_MIN)
-      ? uuidv_tl_default_version
-      : uuidv_global_default_version;
-}
+static inline int  effective_version()   { return uuidv_global_default_version; }
 
 static inline bool effective_formatted() {
   return (uuidv_tl_formatted != -1)
@@ -360,7 +347,7 @@ bool register_sysvars() {
           PLUGIN_VAR_INT,
           "Default UUID version to generate (1, 4, 6, or 7). "
           "Used when uuidv_component() is called with no argument.",
-          nullptr, update_default_version,
+          nullptr, nullptr,
           reinterpret_cast<void *>(&version_arg),
           reinterpret_cast<void *>(&uuidv_global_default_version)))
     return true;
