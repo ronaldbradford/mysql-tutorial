@@ -148,16 +148,21 @@ UNINSTALL COMPONENT 'file://component_uuidv';
 
 ## Testing
 
-`test/test_uuidv.sql` runs 28 functional tests covering all three
+`test/test_uuidv.sql` runs 44 functional tests covering all three
 implementations: length, format, version bit, NULL input, unsupported version,
-uniqueness, `SHOW PLUGINS` visibility, and simultaneous coexistence.
+uniqueness, `SHOW PLUGINS` visibility, system variable defaults and session
+scope, and simultaneous coexistence.
 
 Run against any MySQL 8.4 instance that has `plugin_dir` set to the directory
 where the `.so` files were installed:
 
 ```bash
-mysql -uroot < test/test_uuidv.sql
+mysql -uroot -f < test/test_uuidv.sql
 ```
+
+The `-f` flag is required: `UNINSTALL PLUGIN` and `UNINSTALL COMPONENT` have no
+`IF EXISTS` clause and emit an error when nothing is loaded (e.g. on the first
+run). With `-f` those errors are printed but execution continues.
 
 Every test prints `PASS` or `FAIL`. All should print `PASS`.
 

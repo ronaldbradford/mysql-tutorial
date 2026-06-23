@@ -3,9 +3,24 @@
 -- directory where uuidv_udf.so, uuidv_plugin.so, and component_uuidv.so live.
 --
 -- Usage:
---   mysql -uroot -S /tmp/mysql-8.4-test/mysql.sock < test/test_uuidv.sql
+--   mysql -uroot -f -S /tmp/mysql-8.4-test/mysql.sock < test/test_uuidv.sql
+--
+-- The -f flag is required: UNINSTALL PLUGIN/COMPONENT have no IF EXISTS and
+-- will error harmlessly when the plugin/component is not loaded (e.g. on the
+-- first run or after a clean shutdown).
 
 \W
+
+-- ========================================================================
+-- Cleanup: drop anything left over from a previous aborted run.
+-- UNINSTALL PLUGIN / COMPONENT have no IF EXISTS; errors here are expected
+-- on a clean instance and are suppressed by the -f flag.
+-- ========================================================================
+
+DROP FUNCTION IF EXISTS uuidv_udf;
+DROP FUNCTION IF EXISTS uuidv_plugin;
+UNINSTALL PLUGIN uuidv_plugin;
+UNINSTALL COMPONENT 'file://component_uuidv';
 
 -- ========================================================================
 -- UDF (uuidv_udf): loaded with CREATE FUNCTION / SONAME
@@ -76,6 +91,37 @@ SET @p3 = uuidv_plugin(7);
 SELECT 'uuidv_plugin uniqueness v7' AS test,
        IF(@p1 <> @p2 AND @p2 <> @p3 AND @p1 <> @p3, 'PASS', 'FAIL') AS result;
 
+-- System variables: default_version
+SELECT 'uuidv_plugin sysvar default_version exists' AS test,
+       IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
+FROM   performance_schema.global_variables
+WHERE  VARIABLE_NAME = 'uuidv_plugin_default_version';
+
+SELECT 'uuidv_plugin sysvar default_version default' AS test,
+       IF(@@uuidv_plugin_default_version = 4, 'PASS', 'FAIL') AS result;
+
+SET SESSION uuidv_plugin_default_version = 7;
+SET @d = uuidv_plugin();
+SELECT 'uuidv_plugin default_version=7 no-arg call' AS test,
+       IF(SUBSTRING(@d, 15, 1) = '7', 'PASS', 'FAIL') AS result;
+SET SESSION uuidv_plugin_default_version = 4;
+
+-- System variables: formatted (dashes vs compact)
+SELECT 'uuidv_plugin sysvar formatted exists' AS test,
+       IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
+FROM   performance_schema.global_variables
+WHERE  VARIABLE_NAME = 'uuidv_plugin_formatted';
+
+SELECT 'uuidv_plugin formatted=ON length' AS test,
+       IF(LENGTH(uuidv_plugin(4)) = 36, 'PASS', 'FAIL') AS result;
+
+SET SESSION uuidv_plugin_formatted = OFF;
+SELECT 'uuidv_plugin formatted=OFF length' AS test,
+       IF(LENGTH(uuidv_plugin(4)) = 32, 'PASS', 'FAIL') AS result;
+SELECT 'uuidv_plugin formatted=OFF no dashes' AS test,
+       IF(LOCATE('-', CAST(uuidv_plugin(4) AS CHAR)) = 0, 'PASS', 'FAIL') AS result;
+SET SESSION uuidv_plugin_formatted = ON;
+
 DROP FUNCTION uuidv_plugin;
 UNINSTALL PLUGIN uuidv_plugin;
 
@@ -101,6 +147,37 @@ SET @c2 = uuidv_component(4);
 SET @c3 = uuidv_component(4);
 SELECT 'uuidv_component uniqueness v4' AS test,
        IF(@c1 <> @c2 AND @c2 <> @c3 AND @c1 <> @c3, 'PASS', 'FAIL') AS result;
+
+-- System variables: default_version
+SELECT 'uuidv_component sysvar default_version exists' AS test,
+       IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
+FROM   performance_schema.global_variables
+WHERE  VARIABLE_NAME = 'component_uuidv.default_version';
+
+SELECT 'uuidv_component sysvar default_version default' AS test,
+       IF(@@`component_uuidv.default_version` = 4, 'PASS', 'FAIL') AS result;
+
+SET GLOBAL `component_uuidv.default_version` = 7;
+SET @d = uuidv_component();
+SELECT 'uuidv_component default_version=7 no-arg call' AS test,
+       IF(SUBSTRING(@d, 15, 1) = '7', 'PASS', 'FAIL') AS result;
+SET GLOBAL `component_uuidv.default_version` = 4;
+
+-- System variables: formatted (dashes vs compact)
+SELECT 'uuidv_component sysvar formatted exists' AS test,
+       IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
+FROM   performance_schema.global_variables
+WHERE  VARIABLE_NAME = 'component_uuidv.formatted';
+
+SELECT 'uuidv_component formatted=ON length' AS test,
+       IF(LENGTH(uuidv_component(4)) = 36, 'PASS', 'FAIL') AS result;
+
+SET SESSION `component_uuidv.formatted` = OFF;
+SELECT 'uuidv_component formatted=OFF length' AS test,
+       IF(LENGTH(uuidv_component(4)) = 32, 'PASS', 'FAIL') AS result;
+SELECT 'uuidv_component formatted=OFF no dashes' AS test,
+       IF(LOCATE('-', uuidv_component(4)) = 0, 'PASS', 'FAIL') AS result;
+SET SESSION `component_uuidv.formatted` = ON;
 
 UNINSTALL COMPONENT 'file://component_uuidv';
 

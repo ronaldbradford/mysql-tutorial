@@ -47,6 +47,11 @@ target_include_directories(uuidv_plugin PRIVATE
     "${MYSQL_INC}"
 )
 target_compile_options(uuidv_plugin PRIVATE ${UDF_FLAGS})
+# thd_get_current_thd() is exported by mysqld and resolved at dlopen time;
+# -undefined dynamic_lookup suppresses the macOS link-time error.
+if(APPLE)
+  target_link_options(uuidv_plugin PRIVATE -undefined dynamic_lookup)
+endif()
 set_target_properties(uuidv_plugin PROPERTIES
     PREFIX "" SUFFIX ".so" OUTPUT_NAME "uuidv_plugin")
 
