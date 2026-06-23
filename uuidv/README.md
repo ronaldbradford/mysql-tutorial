@@ -148,10 +148,11 @@ UNINSTALL COMPONENT 'file://component_uuidv';
 
 ## Testing
 
-`test/test_uuidv.sql` runs 44 functional tests covering all three
+`test/test_uuidv.sql` runs 50 functional tests covering all three
 implementations: length, format, version bit, NULL input, unsupported version,
 uniqueness, `SHOW PLUGINS` visibility, system variable defaults and session
-scope, and simultaneous coexistence.
+scope, invocation counters in `performance_schema.global_status`, and
+simultaneous coexistence.
 
 Run against any MySQL 8.4 instance that has `plugin_dir` set to the directory
 where the `.so` files were installed:

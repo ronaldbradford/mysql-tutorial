@@ -63,6 +63,25 @@ static SYS_VAR *uuidv_sysvars[] = {
     nullptr
 };
 
+/* ---- Invocation counters (per UUID version) ------------------------------ */
+
+static long long uuidv_count_v1 = 0;
+static long long uuidv_count_v4 = 0;
+static long long uuidv_count_v6 = 0;
+static long long uuidv_count_v7 = 0;
+
+static SHOW_VAR uuidv_status_vars[] = {
+    {"uuidv_plugin_v1_count", (char *)&uuidv_count_v1,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {"uuidv_plugin_v4_count", (char *)&uuidv_count_v4,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {"uuidv_plugin_v6_count", (char *)&uuidv_count_v6,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {"uuidv_plugin_v7_count", (char *)&uuidv_count_v7,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {nullptr, nullptr, SHOW_UNDEF, SHOW_SCOPE_GLOBAL}
+};
+
 /* ---- Daemon plugin lifecycle --------------------------------------------- */
 
 static int daemon_init(void *) { return 0; }
@@ -81,8 +100,8 @@ mysql_declare_plugin(uuidv_plugin){
     nullptr,       /* check_uninstall */
     daemon_deinit,
     0x0100,        /* version 1.0 */
-    nullptr,       /* status variables */
-    uuidv_sysvars, /* system variables */
+    uuidv_status_vars, /* status variables */
+    uuidv_sysvars,     /* system variables */
     nullptr,       /* __reserved1 */
     0,             /* flags */
 } mysql_declare_plugin_end;
@@ -133,6 +152,13 @@ char *uuidv_plugin(UDF_INIT *, UDF_ARGS *args, char *result,
     *error = 1;
     *is_null = 1;
     return nullptr;
+  }
+
+  switch (static_cast<int>(version)) {
+    case 1: ++uuidv_count_v1; break;
+    case 4: ++uuidv_count_v4; break;
+    case 6: ++uuidv_count_v6; break;
+    case 7: ++uuidv_count_v7; break;
   }
 
   if (THDVAR(thd, formatted)) {

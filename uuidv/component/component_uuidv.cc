@@ -30,16 +30,37 @@
 #include <mysql/components/service_implementation.h>
 #include <mysql/components/services/udf_registration.h>
 #include <mysql/components/services/component_sys_var_service.h>
+#include <mysql/components/services/component_status_var_service.h>
 
 #include "../uuid_gen.h"
 
 REQUIRES_SERVICE_PLACEHOLDER(udf_registration);
 REQUIRES_SERVICE_PLACEHOLDER(component_sys_variable_register);
 REQUIRES_SERVICE_PLACEHOLDER(component_sys_variable_unregister);
+REQUIRES_SERVICE_PLACEHOLDER(status_variable_registration);
 
 namespace {
 
 const char *kFuncName = "uuidv_component";
+
+/* ---- Invocation counters (per UUID version) ------------------------------ */
+
+static long long uuidv_count_v1 = 0;
+static long long uuidv_count_v4 = 0;
+static long long uuidv_count_v6 = 0;
+static long long uuidv_count_v7 = 0;
+
+static SHOW_VAR uuidv_status_vars[] = {
+    {"uuidv_component_v1_count", (char *)&uuidv_count_v1,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {"uuidv_component_v4_count", (char *)&uuidv_count_v4,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {"uuidv_component_v6_count", (char *)&uuidv_count_v6,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {"uuidv_component_v7_count", (char *)&uuidv_count_v7,
+     SHOW_LONGLONG, SHOW_SCOPE_GLOBAL},
+    {nullptr, nullptr, SHOW_UNDEF, SHOW_SCOPE_GLOBAL}
+};
 
 /* ---- Global storage (SET GLOBAL writes here) ----------------------------- */
 
@@ -135,6 +156,13 @@ char *uuidv_udf(UDF_INIT *, UDF_ARGS *args, char *result,
     return nullptr;
   }
 
+  switch (static_cast<int>(version)) {
+    case 1: ++uuidv_count_v1; break;
+    case 4: ++uuidv_count_v4; break;
+    case 6: ++uuidv_count_v6; break;
+    case 7: ++uuidv_count_v7; break;
+  }
+
   if (effective_formatted()) {
     memcpy(result, buf, 36);
     *length = 36;
@@ -208,10 +236,14 @@ mysql_service_status_t component_init() {
     unregister_sysvars();
     return 1;
   }
+  mysql_service_status_variable_registration->register_variable(
+      uuidv_status_vars);
   return 0;
 }
 
 mysql_service_status_t component_deinit() {
+  mysql_service_status_variable_registration->unregister_variable(
+      uuidv_status_vars);
   unregister_uuidv();
   unregister_sysvars();
   return 0;
@@ -227,6 +259,7 @@ BEGIN_COMPONENT_REQUIRES(component_uuidv)
 REQUIRES_SERVICE(udf_registration),
 REQUIRES_SERVICE(component_sys_variable_register),
 REQUIRES_SERVICE(component_sys_variable_unregister),
+REQUIRES_SERVICE(status_variable_registration),
 END_COMPONENT_REQUIRES();
 
 BEGIN_COMPONENT_METADATA(component_uuidv)

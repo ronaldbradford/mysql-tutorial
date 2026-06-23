@@ -122,6 +122,22 @@ SELECT 'uuidv_plugin formatted=OFF no dashes' AS test,
        IF(LOCATE('-', CAST(uuidv_plugin(4) AS CHAR)) = 0, 'PASS', 'FAIL') AS result;
 SET SESSION uuidv_plugin_formatted = ON;
 
+-- Status variables: invocation counters
+SELECT 'uuidv_plugin v4_count exists' AS test,
+       IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
+FROM   performance_schema.global_status
+WHERE  VARIABLE_NAME = 'uuidv_plugin_v4_count';
+
+SET @before = (SELECT CAST(VARIABLE_VALUE AS SIGNED)
+               FROM performance_schema.global_status
+               WHERE VARIABLE_NAME = 'uuidv_plugin_v7_count');
+SELECT uuidv_plugin(7), uuidv_plugin(7), uuidv_plugin(7);
+SET @after = (SELECT CAST(VARIABLE_VALUE AS SIGNED)
+              FROM performance_schema.global_status
+              WHERE VARIABLE_NAME = 'uuidv_plugin_v7_count');
+SELECT 'uuidv_plugin v7_count increments' AS test,
+       IF(@after - @before = 3, 'PASS', 'FAIL') AS result;
+
 DROP FUNCTION uuidv_plugin;
 UNINSTALL PLUGIN uuidv_plugin;
 
@@ -178,6 +194,22 @@ SELECT 'uuidv_component formatted=OFF length' AS test,
 SELECT 'uuidv_component formatted=OFF no dashes' AS test,
        IF(LOCATE('-', uuidv_component(4)) = 0, 'PASS', 'FAIL') AS result;
 SET SESSION `component_uuidv.formatted` = ON;
+
+-- Status variables: invocation counters
+SELECT 'uuidv_component v4_count exists' AS test,
+       IF(COUNT(*) = 1, 'PASS', 'FAIL') AS result
+FROM   performance_schema.global_status
+WHERE  VARIABLE_NAME = 'uuidv_component_v4_count';
+
+SET @before = (SELECT CAST(VARIABLE_VALUE AS SIGNED)
+               FROM performance_schema.global_status
+               WHERE VARIABLE_NAME = 'uuidv_component_v7_count');
+SELECT uuidv_component(7), uuidv_component(7), uuidv_component(7);
+SET @after = (SELECT CAST(VARIABLE_VALUE AS SIGNED)
+              FROM performance_schema.global_status
+              WHERE VARIABLE_NAME = 'uuidv_component_v7_count');
+SELECT 'uuidv_component v7_count increments' AS test,
+       IF(@after - @before = 3, 'PASS', 'FAIL') AS result;
 
 UNINSTALL COMPONENT 'file://component_uuidv';
 
